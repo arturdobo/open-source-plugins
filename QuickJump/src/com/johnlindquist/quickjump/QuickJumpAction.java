@@ -3,7 +3,12 @@ package com.johnlindquist.quickjump;
 import com.intellij.find.FindManager;
 import com.intellij.find.FindModel;
 import com.intellij.find.FindResult;
-import com.intellij.openapi.actionSystem.*;
+import com.intellij.openapi.actionSystem.ActionManager;
+import com.intellij.openapi.actionSystem.AnAction;
+import com.intellij.openapi.actionSystem.AnActionEvent;
+import com.intellij.openapi.actionSystem.DataContext;
+import com.intellij.openapi.actionSystem.IdeActions;
+import com.intellij.openapi.actionSystem.PlatformDataKeys;
 import com.intellij.openapi.actionSystem.impl.ActionManagerImpl;
 import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.Result;
@@ -16,22 +21,27 @@ import com.intellij.openapi.editor.impl.EditorImpl;
 import com.intellij.openapi.editor.impl.FoldingModelImpl;
 import com.intellij.openapi.editor.impl.ScrollingModelImpl;
 import com.intellij.openapi.project.Project;
-import com.intellij.openapi.ui.popup.*;
+import com.intellij.openapi.ui.popup.Balloon;
+import com.intellij.openapi.ui.popup.BalloonBuilder;
+import com.intellij.openapi.ui.popup.ComponentPopupBuilder;
+import com.intellij.openapi.ui.popup.JBPopupAdapter;
+import com.intellij.openapi.ui.popup.JBPopupFactory;
+import com.intellij.openapi.ui.popup.LightweightWindowEvent;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
+import com.intellij.psi.codeStyle.MinusculeMatcher;
 import com.intellij.psi.codeStyle.NameUtil;
 import com.intellij.psi.impl.cache.impl.id.IdTableBuilding;
+import com.intellij.ui.JBColor;
 import com.intellij.ui.awt.RelativePoint;
 import com.intellij.ui.popup.AbstractPopup;
 import com.intellij.usageView.UsageInfo;
 import com.intellij.usages.UsageInfo2UsageAdapter;
 import com.intellij.util.ArrayUtil;
-import com.intellij.util.ui.BlockBorder;
 import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
-import javax.swing.Timer;
 import javax.swing.event.DocumentEvent;
 import javax.swing.event.DocumentListener;
 import java.awt.*;
@@ -39,8 +49,13 @@ import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.awt.event.KeyAdapter;
 import java.awt.event.KeyEvent;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /**
  * User: John Lindquist
@@ -61,7 +76,6 @@ public class QuickJumpAction extends AnAction {
     protected DataContext dataContext;
     protected AnActionEvent inputEvent;
     protected CaretModel caretModel;
-    private Font font;
 
     public void actionPerformed(AnActionEvent e) {
         inputEvent = e;
@@ -77,19 +91,13 @@ public class QuickJumpAction extends AnAction {
         findManager = FindManager.getInstance(project);
         findModel = createFindModel(findManager);
 
-//        font = editor.getComponent().getFont();
-
-        font = new Font("Verdana", Font.BOLD, 11);
         searchBox = new SearchBox();
 
-        searchBox.setFont(font);
-        searchBox.setSize(searchBox.getPreferredSize());
-
-        ComponentPopupBuilder popupBuilder = JBPopupFactory.getInstance().createComponentPopupBuilder(searchBox, searchBox);
+        ComponentPopupBuilder popupBuilder = JBPopupFactory.getInstance()
+                                                           .createComponentPopupBuilder(searchBox, searchBox)
+                                                           .setCancelOnClickOutside(true)
+                                                           .setRequestFocus(true);
         popup = (AbstractPopup) popupBuilder.createPopup();
-
-        popup.getContent().setBorder(new BlockBorder());
-
         popup.show(guessBestLocation(editor));
         popup.addListener(new JBPopupAdapter() {
             @Override
@@ -97,8 +105,8 @@ public class QuickJumpAction extends AnAction {
                 searchBox.hideBalloons();
             }
         });
-        searchBox.requestFocus();
 
+        searchBox.requestFocus();
         searchBox.findText(0);
     }
 
@@ -125,7 +133,7 @@ public class QuickJumpAction extends AnAction {
     }
 
     protected RelativePoint getPointFromVisualPosition(Editor editor, VisualPosition logicalPosition) {
-        Point p = editor.visualPositionToXY(new VisualPosition(logicalPosition.line + 1, logicalPosition.column));
+        Point p = editor.visualPositionToXY(new VisualPosition(logicalPosition.line, logicalPosition.column));
         return new RelativePoint(editor.getContentComponent(), p);
     }
 
@@ -302,7 +310,7 @@ public class QuickJumpAction extends AnAction {
             String text = getText();
             int length = text.length();
 
-            int width = 11 + getFontMetrics(getFont()).stringWidth(getText());
+            int width = 15 + getFontMetrics(getFont()).stringWidth(getText());
             int height = getHeight();
             popup.setSize(new Dimension(width, height));
             setSize(width, height);
@@ -444,12 +452,10 @@ public class QuickJumpAction extends AnAction {
 
                 int textOffset = results.get(i);
                 RelativePoint point = getPointFromVisualPosition(editor, editor.offsetToVisualPosition(textOffset));
-                Point originalPoint = point.getOriginalPoint();
-                originalPoint.translate(0, -editor.getLineHeight() / 2);
-//                System.out.println(originalPoint.getX() + " " + originalPoint.getY());
+                point.getOriginalPoint().translate(0, editor.getLineHeight() / 2);
 
                 JPanel jPanel = new JPanel(new GridLayout());
-                jPanel.setBackground(new Color(255, 255, 255));
+                jPanel.setBackground(JBColor.GREEN);
                 int mnemoicNumber = i % ALLOWED_RESULTS;
                 String text = String.valueOf(mnemoicNumber);
                 if (i % ALLOWED_RESULTS == 0) {
@@ -457,9 +463,7 @@ public class QuickJumpAction extends AnAction {
                 }
 
                 JLabel jLabel = new JLabel(text);
-//                Font jLabelFont = new Font(jLabel.getFont().getName(), Font.BOLD, 11);
-                jLabel.setFont(font);
-                jLabel.setBackground(new Color(192, 192, 192));
+                jLabel.setBackground(JBColor.GRAY);
                 jLabel.setHorizontalAlignment(CENTER);
                 jLabel.setFocusable(false);
                 jLabel.setSize(jLabel.getWidth(), 5);
@@ -480,8 +484,8 @@ public class QuickJumpAction extends AnAction {
                 balloonBuilder.setHideOnClickOutside(true);
                 balloonBuilder.setHideOnKeyOutside(true);
                 balloonBuilder.setHideOnAction(true);
-                balloonBuilder.setFillColor(new Color(221, 221, 221));
-                balloonBuilder.setBorderColor(new Color(136, 136, 136));
+                balloonBuilder.setFillColor(JBColor.GREEN);
+                balloonBuilder.setBorderColor(JBColor.GRAY);
 
                 Balloon balloon = balloonBuilder.createBalloon();
                 balloonPointHashMap.put(balloon, point);
@@ -510,7 +514,7 @@ public class QuickJumpAction extends AnAction {
             for (int i = 0, balloonsSize = balloons.size(); i < balloonsSize; i++) {
                 Balloon balloon = balloons.get(i);
                 RelativePoint point = balloonPointHashMap.get(balloon);
-                balloon.show(point, Balloon.Position.above);
+                balloon.show(point, Balloon.Position.atLeft);
             }
 
 
@@ -642,7 +646,7 @@ public class QuickJumpAction extends AnAction {
 
 
     protected String[] calcWords(final String prefix, Editor editor) {
-        final NameUtil.MinusculeMatcher matcher = (NameUtil.MinusculeMatcher) NameUtil.buildMatcher(prefix, 0, true, true);
+        final MinusculeMatcher matcher = (MinusculeMatcher) NameUtil.buildMatcher(prefix, 0, true, true);
         final Set<String> words = new HashSet<String>();
         CharSequence chars = editor.getDocument().getCharsSequence();
 
